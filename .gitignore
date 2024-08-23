@@ -1,5 +1,7 @@
 *rf*
-env/
+.venv/
 __pycache__/
 # Generated CSS File
 app/static/css/output.css
+node_modules
+env/

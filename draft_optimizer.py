@@ -2,10 +2,10 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
-
+import requests
 
 # league rules!
-numberOfTeams = 10
+numberOfTeams = 16
 isFlex = True
 ppr = 1
 rushYards = .1
@@ -29,17 +29,108 @@ draftedOverall = []
 
 yourTeam = []
 
+fuzzy_replacements = {'7547': 'AmonRaSt',
+                    '7670': 'JoshPalmer',
+                    '166': 'JoshuaCribbs',
+                    '6290': 'ScottMiller',
+                    '226': 'AntwaanRandle',
+                    '308': 'JohnnieLee',
+                    '5773': 'KhadarelHodge',
+                    '2247': 'WaltPowell',
+                    '3384': 'DeMarcusAyers',
+                    '5539': 'DerrickWilliams',
+                    '8917': 'KavontaeTurpin',
+                    '169': 'SteveSmith2',
+                    '108': 'StevieJohnson',
+                    '9501': 'DemarioDouglas',
+                    '6996': 'JamycalHasty',
+                    '7863': 'JaquanHardy',
+                    '5052': 'RonaldJonesII',
+                    '3668': 'JoshPerkins',
+                    '12357': 'DavidMartin',
+                    '761': 'BrianSt'}
 
+def replace_names(drafted_df, fuzzy_replacements):
+    # Create a function to replace names
+    def replace_name(row):
+        sleeper_id = str(row['sleeper_id'])  # Convert to string to match dictionary keys
+        if sleeper_id in fuzzy_replacements:
+            return fuzzy_replacements[sleeper_id]
+        else:
+            return row['Name']
+
+    # Apply the function to create a new 'Name' column
+    drafted_df['Name'] = drafted_df.apply(replace_name, axis=1)
+
+    return drafted_df
 # roundup function
 def roundUp(x, to=numberOfTeams):
     return to * (x // to + (x % to > 0))
 
+def get_sleeper_draft_picks(draft_id):
+    url = f"https://api.sleeper.app/v1/draft/{draft_id}/picks"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Error fetching draft picks: {response.status_code}")
+        return None
 
-def draft_optimize(yourTeam, draftedOverall, ppr, num_teams):
-    # Assuming necessary data is already loaded: individuals, preds_copy, draftedOverall, yourTeam, etc.
-    # ... [Your data loading code here]
+def update_drafted_players(draft_picks,user_id):
+    draft_info = []
+    for pick in draft_picks:
+        picked_by = pick.get('picked_by')
+        metadata = pick.get('metadata', {})
+        sleeper_id = pick.get('player_id',{})
+        draft_info.append({
+            'first_name': f"{metadata.get('first_name', '')}",
+            'last_name':f"{metadata.get('last_name', '')}",
+            'picked_by':f"{picked_by}",
+            'sleeper_id':f"{sleeper_id}"
+        })
+    drafted_df = pd.DataFrame(draft_info)
+    drafted_df['first_name'] = drafted_df['first_name'].str.replace(r'[^a-zA-Z]', '', regex=True)
+    drafted_df['last_name'] = drafted_df['last_name'].str.replace(r'[^a-zA-Z]', '', regex=True)
+    drafted_df['Name'] = drafted_df['first_name'] + drafted_df['last_name']
+    drafted_df = replace_names(drafted_df, fuzzy_replacements)
+    draftedOverall = drafted_df['Name'].to_list()
+    yourTeam = drafted_df[drafted_df['picked_by']==user_id]['Name'].to_list()
+    return draftedOverall,yourTeam
 
+def get_draft_info(draft_picks):
+    draft_info = []
+    for pick in draft_picks:
+        metadata = pick.get('metadata', {})
+        draft_info.append({
+            'first_name': f"{metadata.get('first_name', '')}",
+            'last_name':f"{metadata.get('last_name', '')}",
+            'position': metadata.get('position', ''),
+            'team': metadata.get('team', ''),
+            'pick_no': pick.get('pick_no', ''),
+            'round': pick.get('round', ''),
+            'draft_slot': pick.get('draft_slot', ''),
+            'roster_id': pick.get('roster_id', ''),
+            'is_keeper': pick.get('is_keeper', False)
+        })
+    draft_info = pd.DataFrame(draft_info)
+    return draft_info
 
+def draft_optimize(ppr, num_teams, draft_id, user_id):
+    # Fetch the latest draft picks from Sleeper API
+    latest_picks = get_sleeper_draft_picks(draft_id)
+    if latest_picks:
+        draftedOverall,yourTeam = update_drafted_players(latest_picks, user_id)
+        draft_info_df = get_draft_info(latest_picks)
+        print("Current Draft Status:")
+        print(draft_info_df)
+
+        print('\n')
+        print('Current team:')
+        print(yourTeam)
+    else:
+        print("Failed to fetch latest draft picks. Using existing draftedOverall list.")
+
+    # Load data based on PPR setting
     if ppr == '0':
         individuals_path = "data/individuals_0_PPR.csv"
         preds_copy_path = "data/preds_copy_0_PPR.csv"
@@ -67,7 +158,6 @@ def draft_optimize(yourTeam, draftedOverall, ppr, num_teams):
     createdDataframe = pd.DataFrame()
     secondDataframe = pd.DataFrame()
     created_rows = []
-
     yourDraft = individuals[individuals['name'].isin(yourTeam)]
     yourDraft['teamrank'] = np.int64(yourDraft.groupby(
         'pos')['preds'].rank(ascending=False, method='min'))
@@ -313,3 +403,9 @@ def draft_optimize(yourTeam, draftedOverall, ppr, num_teams):
     final_df.fillna(0, inplace = True)
 
     return final_df
+
+# Example usage
+draft_id = "1132519955439915008"
+user_id = '721855150913814528'
+result = draft_optimize(ppr, numberOfTeams, draft_id,user_id)
+print(result)

@@ -106,3 +106,5 @@ webencodings==0.5.1
 websocket-client==1.6.1
 werkzeug==2.3.7
 zipp==3.16.2
+python-Levenshtein
+fuzzywuzzy
